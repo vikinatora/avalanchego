@@ -226,8 +226,7 @@ func (c *codecImpl) encodeDBNode(version uint16, n *dbNode) ([]byte, error) {
 			if err := c.encodeInt(buf, int(index)); err != nil {
 				return nil, err
 			}
-			path := entry.compressedPath.Serialize()
-			if err := c.encodeSerializedPath(path, buf); err != nil {
+			if err := c.encodePath(entry.compressedPath, buf); err != nil {
 				return nil, err
 			}
 			if _, err := buf.Write(entry.id[:]); err != nil {
@@ -272,7 +271,7 @@ func (c *codecImpl) encodeHashValues(version uint16, hv *hashValues) ([]byte, er
 	if err := c.encodeMaybeByteSlice(buf, hv.Value); err != nil {
 		return nil, err
 	}
-	if err := c.encodeSerializedPath(hv.Key, buf); err != nil {
+	if err := c.encodePath(hv.Key, buf); err != nil {
 		return nil, err
 	}
 
@@ -480,8 +479,8 @@ func (c *codecImpl) decodeDBNode(b []byte, n *dbNode) (uint16, error) {
 		}
 		previousChild = index
 
-		var compressedPath SerializedPath
-		if compressedPath, err = c.decodeSerializedPath(src); err != nil {
+		var compressedPath Path
+		if compressedPath, err = c.decodePath(src); err != nil {
 			return 0, err
 		}
 		var childID ids.ID
@@ -489,7 +488,7 @@ func (c *codecImpl) decodeDBNode(b []byte, n *dbNode) (uint16, error) {
 			return 0, err
 		}
 		n.children[byte(index)] = child{
-			compressedPath: compressedPath.deserialize(),
+			compressedPath: compressedPath,
 			id:             childID,
 		}
 	}
@@ -738,9 +737,10 @@ func (c *codecImpl) decodeProofNode(src *bytes.Reader) (ProofNode, error) {
 		result ProofNode
 		err    error
 	)
-	if result.KeyPath, err = c.decodeSerializedPath(src); err != nil {
+	if result.KeyPath, err = c.decodePath(src); err != nil {
 		return result, err
 	}
+
 	if result.ValueOrHash, err = c.decodeMaybeByteSlice(src); err != nil {
 		return result, err
 	}
@@ -779,7 +779,7 @@ func (c *codecImpl) decodeProofNode(src *bytes.Reader) (ProofNode, error) {
 }
 
 func (c *codecImpl) encodeProofNode(pn ProofNode, dst io.Writer) error {
-	if err := c.encodeSerializedPath(pn.KeyPath, dst); err != nil {
+	if err := c.encodePath(pn.KeyPath, dst); err != nil {
 		return err
 	}
 	if err := c.encodeMaybeByteSlice(dst, pn.ValueOrHash); err != nil {
@@ -810,49 +810,53 @@ func (c *codecImpl) encodeProofNode(pn ProofNode, dst io.Writer) error {
 	return nil
 }
 
-func (c *codecImpl) encodeSerializedPath(s SerializedPath, dst io.Writer) error {
-	if err := c.encodeInt(dst, s.NibbleLength); err != nil {
+func (c *codecImpl) encodePath(p Path, dst io.Writer) error {
+	if err := c.encodeInt(dst, len(p)); err != nil {
 		return err
 	}
-	_, err := dst.Write(s.Value)
+	_, err := dst.Write(p.AsKey())
 	return err
 }
 
-func (c *codecImpl) decodeSerializedPath(src *bytes.Reader) (SerializedPath, error) {
+func (c *codecImpl) decodePath(src *bytes.Reader) (Path, error) {
 	if minSerializedPathLen > src.Len() {
-		return SerializedPath{}, io.ErrUnexpectedEOF
+		return EmptyPath, io.ErrUnexpectedEOF
 	}
 
 	var (
-		result SerializedPath
-		err    error
+		result       Path
+		err          error
+		nibbleLength int
 	)
-	if result.NibbleLength, err = c.decodeInt(src); err != nil {
+	if nibbleLength, err = c.decodeInt(src); err != nil {
 		return result, err
 	}
-	if result.NibbleLength < 0 {
+	if nibbleLength < 0 {
 		return result, errNegativeNibbleLength
 	}
-	pathBytesLen := result.NibbleLength >> 1
-	hasOddLen := result.hasOddLength()
+	pathBytesLen := nibbleLength >> 1
+	hasOddLen := nibbleLength%2 == 1
 	if hasOddLen {
 		pathBytesLen++
 	}
 	if pathBytesLen > src.Len() {
 		return result, io.ErrUnexpectedEOF
 	}
-	result.Value = make([]byte, pathBytesLen)
-	if _, err := io.ReadFull(src, result.Value); err != nil {
+	valueBytes := make([]byte, pathBytesLen)
+	if _, err := io.ReadFull(src, valueBytes); err != nil {
 		if err == io.EOF {
 			err = io.ErrUnexpectedEOF
 		}
 		return result, err
 	}
+
 	if hasOddLen {
-		paddedNibble := result.Value[pathBytesLen-1] & 0x0F
+		paddedNibble := valueBytes[pathBytesLen-1] & 0x0F
 		if paddedNibble != 0 {
 			return result, errNonZeroNibblePadding
 		}
 	}
-	return result, nil
+
+	// need to trim the result if the nibble length was odd since bytes -> path always gives an even number of nibbles
+	return NewPath(valueBytes)[:nibbleLength], nil
 }

@@ -46,7 +46,7 @@ func newRandomProofNode(r *rand.Rand) ProofNode {
 	}
 
 	return ProofNode{
-		KeyPath:     newPath(key).Serialize(),
+		KeyPath:     NewPath(key),
 		ValueOrHash: Some(val),
 		Children:    children,
 	}
@@ -184,7 +184,7 @@ func FuzzCodecSerializedPath(f *testing.F) {
 			codec := Codec.(*codecImpl)
 			reader := bytes.NewReader(b)
 			startLen := reader.Len()
-			got, err := codec.decodeSerializedPath(reader)
+			got, err := codec.decodePath(reader)
 			if err != nil {
 				return
 			}
@@ -193,13 +193,13 @@ func FuzzCodecSerializedPath(f *testing.F) {
 
 			// Encoding [got] should be the same as [b].
 			var buf bytes.Buffer
-			err = codec.encodeSerializedPath(got, &buf)
+			err = codec.encodePath(got, &buf)
 			require.NoError(err)
 			bufBytes := buf.Bytes()
 			require.Len(bufBytes, numRead)
 			require.Equal(b[:numRead], bufBytes)
 
-			clonedGot := got.deserialize().Serialize()
+			clonedGot := NewPath(got.AsKey())
 			require.Equal(got, clonedGot)
 		},
 	)
@@ -527,7 +527,7 @@ func FuzzCodecDBNodeDeterministic(f *testing.F) {
 				_, _ = r.Read(childPathBytes)              // #nosec G404
 
 				children[byte(i)] = child{
-					compressedPath: newPath(childPathBytes),
+					compressedPath: NewPath(childPathBytes),
 					id:             childID,
 				}
 			}

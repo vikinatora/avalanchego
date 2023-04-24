@@ -25,7 +25,7 @@ func (i *iterator) Key() []byte {
 	if i.current == nil {
 		return nil
 	}
-	return i.current.key.Serialize().Value
+	return i.current.key.AsKey()
 }
 
 func (i *iterator) Value() []byte {
@@ -42,7 +42,7 @@ func (i *iterator) Next() bool {
 	}
 	for i.nodeIter.Next() {
 		i.db.metrics.IOKeyRead()
-		n, err := parseNode(path(i.nodeIter.Key()), i.nodeIter.Value())
+		n, err := parseNode(Path(i.nodeIter.Key()), i.nodeIter.Value())
 		if err != nil {
 			i.err = err
 			return false

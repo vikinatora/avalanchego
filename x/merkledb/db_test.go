@@ -33,7 +33,7 @@ func Test_MerkleDB_Get_Safety(t *testing.T) {
 
 	val, err := db.Get([]byte{0})
 	require.NoError(t, err)
-	n, err := db.getNode(newPath([]byte{0}))
+	n, err := db.getNode(NewPath([]byte{0}))
 	require.NoError(t, err)
 	val[0] = 1
 
@@ -763,10 +763,10 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest) {
 	startRoot, err := db.GetMerkleRoot(context.Background())
 	require.NoError(err)
 
-	values := make(map[path][]byte) // tracks content of the trie
+	values := make(map[Path][]byte) // tracks content of the trie
 	currentBatch := db.NewBatch()
-	currentValues := make(map[path][]byte)
-	deleteValues := make(map[path]struct{})
+	currentValues := make(map[Path][]byte)
+	deleteValues := make(map[Path]struct{})
 	pastRoots := []ids.ID{}
 
 	for i, step := range rt {
@@ -775,13 +775,13 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest) {
 		case opUpdate:
 			err := currentBatch.Put(step.key, step.value)
 			require.NoError(err)
-			currentValues[newPath(step.key)] = step.value
-			delete(deleteValues, newPath(step.key))
+			currentValues[NewPath(step.key)] = step.value
+			delete(deleteValues, NewPath(step.key))
 		case opDelete:
 			err := currentBatch.Delete(step.key)
 			require.NoError(err)
-			deleteValues[newPath(step.key)] = struct{}{}
-			delete(currentValues, newPath(step.key))
+			deleteValues[NewPath(step.key)] = struct{}{}
+			delete(currentValues, NewPath(step.key))
 		case opGenerateRangeProof:
 			root, err := db.GetMerkleRoot(context.Background())
 			require.NoError(err)
@@ -844,15 +844,15 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest) {
 					pastRoots = pastRoots[len(pastRoots)-300:]
 				}
 			}
-			currentValues = map[path][]byte{}
-			deleteValues = map[path]struct{}{}
+			currentValues = map[Path][]byte{}
+			deleteValues = map[Path]struct{}{}
 			currentBatch = db.NewBatch()
 		case opGet:
 			v, err := db.Get(step.key)
 			if err != nil {
 				require.ErrorIs(err, database.ErrNotFound)
 			}
-			want := values[newPath(step.key)]
+			want := values[NewPath(step.key)]
 			require.True(bytes.Equal(want, v)) // Use bytes.Equal so nil treated equal to []byte{}
 			trieValue, err := getNodeValue(db, string(step.key))
 			if err != nil {
@@ -872,8 +872,8 @@ func runRandDBTest(require *require.Assertions, r *rand.Rand, rt randTest) {
 			)
 			require.NoError(err)
 			localTrie := Trie(dbTrie)
-			for key, value := range values {
-				err := localTrie.Insert(context.Background(), key.Serialize().Value, value)
+			for path, value := range values {
+				err := localTrie.Insert(context.Background(), path.AsKey(), value)
 				require.NoError(err)
 			}
 			calculatedRoot, err := localTrie.GetMerkleRoot(context.Background())

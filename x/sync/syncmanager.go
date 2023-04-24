@@ -367,7 +367,7 @@ func (m *StateSyncManager) findNextKey(
 	var result []byte
 	localIndex := len(localProofNodes) - 1
 	receivedIndex := len(receivedProofNodes) - 1
-	startKeyPath := merkledb.SerializedPath{Value: start, NibbleLength: 2 * len(start)}
+	startKeyPath := merkledb.NewPath(start)
 
 	// Just return the start key when the proof nodes contain keys that are not prefixes of the start key
 	// this occurs mostly in change proofs where the largest returned key was a deleted key.
@@ -383,10 +383,10 @@ func (m *StateSyncManager) findNextKey(
 		localNode := localProofNodes[localIndex]
 		receivedNode := receivedProofNodes[receivedIndex]
 		// the two nodes have the same key
-		if localNode.KeyPath.Equal(receivedNode.KeyPath) {
+		if localNode.KeyPath == receivedNode.KeyPath {
 			startingChildIndex := byte(0)
-			if localNode.KeyPath.NibbleLength < startKeyPath.NibbleLength {
-				startingChildIndex = startKeyPath.NibbleVal(localNode.KeyPath.NibbleLength) + 1
+			if len(localNode.KeyPath) < len(startKeyPath) {
+				startingChildIndex = startKeyPath[len(localNode.KeyPath)] + 1
 			}
 			// the two nodes have the same path, so ensure that all children have matching ids
 			for childIndex := startingChildIndex; childIndex < 16; childIndex++ {
@@ -394,7 +394,7 @@ func (m *StateSyncManager) findNextKey(
 				localChildID, localOk := localNode.Children[childIndex]
 				// if they both don't have a child or have matching children, continue
 				if (receiveOk || localOk) && receivedChildID != localChildID {
-					result = localNode.KeyPath.AppendNibble(childIndex).Value
+					result = localNode.KeyPath.Append(childIndex).AsKey()
 					break
 				}
 			}
@@ -409,7 +409,7 @@ func (m *StateSyncManager) findNextKey(
 
 		var branchNode merkledb.ProofNode
 
-		if receivedNode.KeyPath.NibbleLength > localNode.KeyPath.NibbleLength {
+		if len(receivedNode.KeyPath) > len(localNode.KeyPath) {
 			// the received proof has an extra node due to a branch that is not present locally
 			branchNode = receivedNode
 			receivedIndex--
@@ -419,14 +419,14 @@ func (m *StateSyncManager) findNextKey(
 			localIndex--
 		}
 
-		if startKeyPath.NibbleLength <= branchNode.KeyPath.NibbleLength {
+		if len(startKeyPath) <= len(branchNode.KeyPath) {
 			return append(start, 0), nil
 		}
 
 		// the two nodes have different paths, so find where they branched
-		for nextKeyNibble := startKeyPath.NibbleVal(branchNode.KeyPath.NibbleLength) + 1; nextKeyNibble < 16; nextKeyNibble++ {
+		for nextKeyNibble := startKeyPath[len(branchNode.KeyPath)] + 1; nextKeyNibble < 16; nextKeyNibble++ {
 			if _, ok := branchNode.Children[nextKeyNibble]; ok {
-				result = branchNode.KeyPath.AppendNibble(nextKeyNibble).Value
+				result = branchNode.KeyPath.Append(nextKeyNibble).AsKey()
 				break
 			}
 		}
