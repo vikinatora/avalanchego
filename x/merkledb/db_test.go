@@ -6,6 +6,7 @@ package merkledb
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"math/rand"
 	"strconv"
 	"testing"
@@ -64,6 +65,66 @@ func Test_MerkleDB_DB_Interface(t *testing.T) {
 		db, err := getBasicDB()
 		require.NoError(t, err)
 		test(t, db)
+	}
+}
+
+func Benchmark_MerkleDB_Commit_KeysizeXKeycount(b *testing.B) {
+	for _, dataSize := range []int{10, 100, 1_000, 10_000} {
+		r := rand.New(rand.NewSource(int64(dataSize)))
+		inserts := make([][]byte, 100_000)
+		for i := 0; i < 100_000; i++ {
+			inserts[i] = make([]byte, dataSize)
+			r.Read(inserts[i])
+		}
+
+		for _, numberOfInserts := range []int{100, 1_000, 10_000, 100_000} {
+			b.Run(fmt.Sprintf("DataSize:%d_InsertCount:%d", dataSize, numberOfInserts), func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					db, err := getBasicDB()
+					require.NoError(b, err)
+					view, err := db.NewView()
+					require.NoError(b, err)
+					for i := 0; i < numberOfInserts; i++ {
+						require.NoError(b, view.Insert(context.Background(), inserts[i], nil))
+					}
+					require.NoError(b, view.CommitToDB(context.Background()))
+				}
+			})
+		}
+	}
+}
+
+func Benchmark_MerkleDB_Commit_BatchSize(b *testing.B) {
+	totalInserts := 1_000_000
+	r := rand.New(rand.NewSource(int64(totalInserts)))
+	inserts := make([][]byte, totalInserts)
+	for i := 0; i < totalInserts; i++ {
+		inserts[i] = make([]byte, 10)
+		r.Read(inserts[i])
+	}
+	sizes := []int{100, 1000}
+	for x := 10000; x <= 100_000; x += 10000 {
+		sizes = append(sizes, x)
+	}
+
+	for _, batchSize := range sizes {
+		b.Run(fmt.Sprintf("batchSize:%d", batchSize), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				db, err := getBasicDB()
+				require.NoError(b, err)
+				view, err := db.NewView()
+				require.NoError(b, err)
+				for i := 0; i < totalInserts; i++ {
+					require.NoError(b, view.Insert(context.Background(), inserts[i], nil))
+					if i%batchSize == 0 {
+						require.NoError(b, view.CommitToDB(context.Background()))
+						view, err = db.NewView()
+						require.NoError(b, err)
+					}
+				}
+				require.NoError(b, view.CommitToDB(context.Background()))
+			}
+		})
 	}
 }
 
