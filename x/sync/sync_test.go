@@ -6,6 +6,7 @@ package sync
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -821,6 +822,50 @@ func Test_Sync_Result_Correct_Root(t *testing.T) {
 	}
 }
 
+func Benchmark_Sync(b *testing.B) {
+	for _, numberOfKeys := range []int{1_000, 100_000, 1_000_000} {
+		r := rand.New(rand.NewSource(int64(0))) // #nosec G404
+		dbToSync, err := generateTrie(b, r, numberOfKeys)
+		require.NoError(b, err)
+		syncRoot, err := dbToSync.GetMerkleRoot(context.Background())
+		require.NoError(b, err)
+		b.Run(fmt.Sprintf("%d", numberOfKeys), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				db, err := merkledb.New(
+					context.Background(),
+					memdb.New(),
+					merkledb.Config{
+						Tracer:        newNoopTracer(),
+						HistoryLength: 0,
+						NodeCacheSize: 10_000,
+					},
+				)
+				require.NoError(b, err)
+				syncer, err := NewStateSyncManager(StateSyncConfig{
+					SyncDB:                db,
+					Client:                &mockClient{db: dbToSync},
+					TargetRoot:            syncRoot,
+					SimultaneousWorkLimit: 10,
+					Log:                   logging.NoLog{},
+				})
+				require.NoError(b, err)
+				require.NotNil(b, syncer)
+				err = syncer.StartSyncing(context.Background())
+				require.NoError(b, err)
+
+				err = syncer.Wait(context.Background())
+				require.NoError(b, err)
+				require.NoError(b, syncer.Error())
+
+				// new db has fully sync'ed and should be at the same root as the original db
+				newRoot, err := db.GetMerkleRoot(context.Background())
+				require.NoError(b, err)
+				require.Equal(b, syncRoot, newRoot)
+			}
+		})
+	}
+}
+
 func Test_Sync_Result_Correct_Root_With_Sync_Restart(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		r := rand.New(rand.NewSource(int64(i))) // #nosec G404
@@ -1104,19 +1149,19 @@ func Test_Sync_UpdateSyncTarget(t *testing.T) {
 	require.Equal(1, m.unprocessedWork.Len())
 }
 
-func generateTrie(t *testing.T, r *rand.Rand, count int) (*merkledb.Database, error) {
+func generateTrie(t testing.TB, r *rand.Rand, count int) (*merkledb.Database, error) {
 	db, _, err := generateTrieWithMinKeyLen(t, r, count, 0)
 	return db, err
 }
 
-func generateTrieWithMinKeyLen(t *testing.T, r *rand.Rand, count int, minKeyLen int) (*merkledb.Database, [][]byte, error) {
+func generateTrieWithMinKeyLen(t testing.TB, r *rand.Rand, count int, minKeyLen int) (*merkledb.Database, [][]byte, error) {
 	db, err := merkledb.New(
 		context.Background(),
 		memdb.New(),
 		merkledb.Config{
 			Tracer:        newNoopTracer(),
 			HistoryLength: 1000,
-			NodeCacheSize: 1000,
+			NodeCacheSize: 1_000_000,
 		},
 	)
 	if err != nil {
