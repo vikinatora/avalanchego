@@ -161,7 +161,7 @@ type merkleDB struct {
 	// Note that a call to Put may cause a node to be evicted
 	// from the cache, which will call [OnEviction].
 	// A non-nil error returned from Put is considered fatal.
-	nodeCache onEvictCache[path, *node]
+	nodeCache *nodeCache
 	// Stores any error returned by [onEviction].
 	onEvictionErr     utils.Atomic[error]
 	evictionBatchSize int
@@ -225,7 +225,7 @@ func newDatabase(
 
 	// Note: trieDB.OnEviction is responsible for writing intermediary nodes to
 	// disk as they are evicted from the cache.
-	trieDB.nodeCache = newOnEvictCache[path](config.NodeCacheSize, trieDB.onEviction)
+	trieDB.nodeCache = newNodeCache(config.NodeCacheSize, trieDB.onEviction)
 
 	root, err := trieDB.initializeRootIfNeeded()
 	if err != nil {
@@ -790,7 +790,7 @@ func (db *merkleDB) NewIteratorWithStartAndPrefix(start, prefix []byte) database
 // the movement of [node] from [db.nodeCache] to [db.nodeDB] is atomic.
 // As soon as [db.nodeCache] no longer has [node], [db.nodeDB] does.
 // Non-nil error is fatal -- causes [db] to close.
-func (db *merkleDB) onEviction(n *node) error {
+func (db *merkleDB) onEviction(key path, n *node) error {
 	// the evicted node isn't an intermediary node, so skip writing.
 	if n == nil || n.hasValue() {
 		return nil

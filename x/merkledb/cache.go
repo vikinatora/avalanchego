@@ -11,26 +11,26 @@ import (
 )
 
 // A cache that calls [onEviction] on the evicted element.
-type onEvictCache[K comparable, V any] struct {
+type nodeCache struct {
 	lock    sync.RWMutex
 	maxSize int
-	fifo    linkedhashmap.LinkedHashmap[K, V]
+	fifo    linkedhashmap.LinkedHashmap[path, *node]
 	// Must not call any method that grabs [c.lock]
 	// because this would cause a deadlock.
-	onEviction func(V) error
+	onEviction func(path, *node) error
 }
 
-func newOnEvictCache[K comparable, V any](maxSize int, onEviction func(V) error) onEvictCache[K, V] {
-	return onEvictCache[K, V]{
+func newNodeCache(maxSize int, onEviction func(path, *node) error) *nodeCache {
+	return &nodeCache{
 		maxSize:    maxSize,
-		fifo:       linkedhashmap.New[K, V](),
+		fifo:       linkedhashmap.New[path, *node](),
 		onEviction: onEviction,
 	}
 }
 
 // removeOldest returns and removes the oldest element from this cache.
 // Assumes [c.lock] is held.
-func (c *onEvictCache[K, V]) removeOldest() (K, V, bool) {
+func (c *nodeCache) removeOldest() (path, *node, bool) {
 	k, v, exists := c.fifo.Oldest()
 	if exists {
 		c.fifo.Delete(k)
@@ -39,7 +39,7 @@ func (c *onEvictCache[K, V]) removeOldest() (K, V, bool) {
 }
 
 // Get an element from this cache.
-func (c *onEvictCache[K, V]) Get(key K) (V, bool) {
+func (c *nodeCache) Get(key path) (*node, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -49,7 +49,7 @@ func (c *onEvictCache[K, V]) Get(key K) (V, bool) {
 // Put an element into this cache. If this causes an element
 // to be evicted, calls [c.onEviction] on the evicted element
 // and returns the error from [c.onEviction]. Otherwise returns nil.
-func (c *onEvictCache[K, V]) Put(key K, value V) error {
+func (c *nodeCache) Put(key path, value *node) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -58,7 +58,7 @@ func (c *onEvictCache[K, V]) Put(key K, value V) error {
 	if c.fifo.Len() > c.maxSize {
 		oldestKey, oldestVal, _ := c.fifo.Oldest()
 		c.fifo.Delete(oldestKey)
-		return c.onEviction(oldestVal)
+		return c.onEviction(oldestKey, oldestVal)
 	}
 	return nil
 }
@@ -67,10 +67,10 @@ func (c *onEvictCache[K, V]) Put(key K, value V) error {
 // Returns the last non-nil error during [c.onEviction], if any.
 // If [c.onEviction] errors, it will still be called for any
 // subsequent elements and the cache will still be emptied.
-func (c *onEvictCache[K, V]) Flush() error {
+func (c *nodeCache) Flush() error {
 	c.lock.Lock()
 	defer func() {
-		c.fifo = linkedhashmap.New[K, V]()
+		c.fifo = linkedhashmap.New[path, *node]()
 		c.lock.Unlock()
 	}()
 
@@ -78,12 +78,12 @@ func (c *onEvictCache[K, V]) Flush() error {
 	// modifies [c.fifo], which violates the iterator's invariant.
 	var errs wrappers.Errs
 	for {
-		_, node, exists := c.removeOldest()
+		key, node, exists := c.removeOldest()
 		if !exists {
 			// The cache is empty.
 			return errs.Err
 		}
 
-		errs.Add(c.onEviction(node))
+		errs.Add(c.onEviction(key, node))
 	}
 }

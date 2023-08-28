@@ -42,6 +42,7 @@ type node struct {
 	key         path
 	nodeBytes   []byte
 	valueDigest maybe.Maybe[[]byte]
+	size        uint32
 }
 
 // Returns a new node with the given [key] and no value.
@@ -71,6 +72,11 @@ func parseNode(key path, nodeBytes []byte) (*node, error) {
 		nodeBytes: nodeBytes,
 	}
 
+	result.size = uint32(len(n.value.Value()) + 1 + len(result.key) + len(result.id) + 4)
+	for _, c := range result.children {
+		result.size += uint32(1 + len(c.id) + len(c.compressedPath))
+	}
+
 	result.setValueDigest()
 	return result, nil
 }
@@ -94,6 +100,7 @@ func (n *node) marshal() []byte {
 func (n *node) onNodeChanged() {
 	n.id = ids.Empty
 	n.nodeBytes = nil
+
 }
 
 // Returns and caches the ID of this node.
@@ -117,7 +124,9 @@ func (n *node) calculateID(metrics merkleMetrics) error {
 // Set [n]'s value to [val].
 func (n *node) setValue(val maybe.Maybe[[]byte]) {
 	n.onNodeChanged()
+	n.size -= uint32(len(n.value.Value()))
 	n.value = val
+	n.size += uint32(len(val.Value()))
 	n.setValueDigest()
 }
 
@@ -125,7 +134,9 @@ func (n *node) setValueDigest() {
 	if n.value.IsNothing() || len(n.value.Value()) < HashLength {
 		n.valueDigest = n.value
 	} else {
+		n.size -= uint32(len(n.valueDigest.Value()))
 		n.valueDigest = maybe.Some(hashing.ComputeHash256(n.value.Value()))
+		n.size += uint32(len(n.valueDigest.Value()))
 	}
 }
 
@@ -143,10 +154,15 @@ func (n *node) addChild(child *node) {
 // Adds a child to [n] without a reference to the child node.
 func (n *node) addChildWithoutNode(index byte, compressedPath path, childID ids.ID) {
 	n.onNodeChanged()
+	if existing, ok := n.children[index]; ok {
+		n.size -= uint32(1 + len(existing.id) + len(existing.compressedPath))
+	}
 	n.children[index] = child{
 		compressedPath: compressedPath,
 		id:             childID,
 	}
+
+	n.size += uint32(1 + len(childID) + len(compressedPath))
 }
 
 // Returns the path of the only child of this node.
@@ -161,7 +177,11 @@ func (n *node) getSingleChildPath() path {
 // Removes [child] from [n]'s children.
 func (n *node) removeChild(child *node) {
 	n.onNodeChanged()
-	delete(n.children, child.key[len(n.key)])
+	index := child.key[len(n.key)]
+	if existing, ok := n.children[index]; ok {
+		n.size -= uint32(1 + len(existing.id) + len(existing.compressedPath))
+		delete(n.children, index)
+	}
 }
 
 // clone Returns a copy of [n].
@@ -179,6 +199,7 @@ func (n *node) clone() *node {
 			children: maps.Clone(n.children),
 		},
 		valueDigest: n.valueDigest,
+		size:        n.size,
 	}
 }
 
