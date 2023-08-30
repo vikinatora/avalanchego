@@ -38,8 +38,8 @@ func newDefaultConfig() Config {
 	return Config{
 		EvictionBatchSize:         10,
 		HistoryLength:             defaultHistoryLength,
-		ValueNodeCacheSize:        1_000,
-		IntermediateNodeCacheSize: 1_000,
+		ValueNodeCacheSize:        10 * units.KiB,
+		IntermediateNodeCacheSize: 10 * units.KiB,
 		Reg:                       prometheus.NewRegistry(),
 		Tracer:                    trace.Noop,
 	}

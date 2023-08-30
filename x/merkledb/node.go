@@ -4,9 +4,9 @@
 package merkledb
 
 import (
-	"github.com/ava-labs/avalanchego/utils"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
+	"unsafe"
 
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ava-labs/avalanchego/utils/hashing"
@@ -16,6 +16,9 @@ import (
 const (
 	NodeBranchFactor = 16
 	HashLength       = 32
+	intSize          = int(unsafe.Sizeof(0))
+	boolSize         = int(unsafe.Sizeof(true))
+	byteSize         = 1
 )
 
 // the values that go into the node's id
@@ -37,14 +40,14 @@ type child struct {
 	hasValue       bool
 }
 
-// node holds additional information on top of the dbNode that makes calulcations easier to do
+// node holds additional information on top of the dbNode that makes calculations easier to do
 type node struct {
 	dbNode
 	id          ids.ID
 	key         path
-	nodeBytes   utils.Atomic[[]byte]
+	nodeBytes   []byte
 	valueDigest maybe.Maybe[[]byte]
-	size        uint32
+	size        int
 }
 
 // Returns a new node with the given [key] and no value.
@@ -56,6 +59,7 @@ func newNode(parent *node, key path) *node {
 		},
 		key: key,
 	}
+	newNode.size = len(key) + boolSize + HashLength + intSize
 	if parent != nil {
 		parent.addChild(newNode)
 	}
@@ -69,14 +73,14 @@ func parseNode(key path, nodeBytes []byte) (*node, error) {
 		return nil, err
 	}
 	result := &node{
-		dbNode: n,
-		key:    key,
+		dbNode:    n,
+		key:       key,
+		nodeBytes: nodeBytes,
 	}
-	result.nodeBytes.Set(nodeBytes)
 
-	result.size = uint32(len(n.value.Value()) + 1 + len(result.key) + len(result.id) + 4)
+	result.size = len(n.value.Value()) + len(result.key) + boolSize + HashLength + intSize
 	for _, c := range result.children {
-		result.size += uint32(1 + len(c.id) + len(c.compressedPath))
+		result.size += byteSize + HashLength + len(c.compressedPath)
 	}
 
 	result.setValueDigest()
@@ -90,18 +94,18 @@ func (n *node) hasValue() bool {
 
 // Returns the byte representation of this node.
 func (n *node) marshal() []byte {
-	if n.nodeBytes.Get() == nil {
-		n.nodeBytes.Set(codec.encodeDBNode(&n.dbNode))
+	if n.nodeBytes == nil {
+		n.nodeBytes = codec.encodeDBNode(&n.dbNode)
 	}
 
-	return n.nodeBytes.Get()
+	return n.nodeBytes
 }
 
 // clear the cached values that will need to be recalculated whenever the node changes
 // for example, node ID and byte representation
 func (n *node) onNodeChanged() {
 	n.id = ids.Empty
-	n.nodeBytes.Set(nil)
+	n.nodeBytes = nil
 
 }
 
@@ -126,9 +130,9 @@ func (n *node) calculateID(metrics merkleMetrics) error {
 // Set [n]'s value to [val].
 func (n *node) setValue(val maybe.Maybe[[]byte]) {
 	n.onNodeChanged()
-	n.size -= uint32(len(n.value.Value()))
+	n.size -= len(n.value.Value())
 	n.value = val
-	n.size += uint32(len(val.Value()))
+	n.size += len(val.Value())
 	n.setValueDigest()
 }
 
@@ -136,9 +140,9 @@ func (n *node) setValueDigest() {
 	if n.value.IsNothing() || len(n.value.Value()) < HashLength {
 		n.valueDigest = n.value
 	} else {
-		n.size -= uint32(len(n.valueDigest.Value()))
+		n.size -= len(n.valueDigest.Value())
 		n.valueDigest = maybe.Some(hashing.ComputeHash256(n.value.Value()))
-		n.size += uint32(len(n.valueDigest.Value()))
+		n.size += len(n.valueDigest.Value())
 	}
 }
 
@@ -158,7 +162,7 @@ func (n *node) addChild(child *node) {
 func (n *node) addChildWithoutNode(index byte, compressedPath path, childID ids.ID, hasValue bool) {
 	n.onNodeChanged()
 	if existing, ok := n.children[index]; ok {
-		n.size -= uint32(1 + len(existing.id) + len(existing.compressedPath))
+		n.size -= byteSize + HashLength + len(existing.compressedPath)
 	}
 	n.children[index] = child{
 		compressedPath: compressedPath,
@@ -166,7 +170,7 @@ func (n *node) addChildWithoutNode(index byte, compressedPath path, childID ids.
 		hasValue:       hasValue,
 	}
 
-	n.size += uint32(1 + len(childID) + len(compressedPath))
+	n.size += byteSize + HashLength + len(compressedPath)
 }
 
 // Removes [child] from [n]'s children.
@@ -174,7 +178,7 @@ func (n *node) removeChild(child *node) {
 	n.onNodeChanged()
 	index := child.key[len(n.key)]
 	if existing, ok := n.children[index]; ok {
-		n.size -= uint32(1 + len(existing.id) + len(existing.compressedPath))
+		n.size -= byteSize + HashLength + len(existing.compressedPath)
 		delete(n.children, index)
 	}
 }
@@ -183,7 +187,7 @@ func (n *node) removeChild(child *node) {
 // Note: value isn't cloned because it is never edited, only overwritten
 // if this ever changes, value will need to be copied as well
 func (n *node) clone() *node {
-	clonedNode := &node{
+	return &node{
 		id:  n.id,
 		key: n.key,
 		dbNode: dbNode{
@@ -192,10 +196,8 @@ func (n *node) clone() *node {
 		},
 		valueDigest: n.valueDigest,
 		size:        n.size,
-		nodeBytes:   utils.Atomic[[]byte]{},
+		nodeBytes:   n.nodeBytes,
 	}
-	clonedNode.nodeBytes.Set(n.nodeBytes.Get())
-	return clonedNode
 }
 
 // Returns the ProofNode representation of this node.

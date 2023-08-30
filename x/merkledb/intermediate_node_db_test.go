@@ -23,8 +23,8 @@ import (
 func TestIntermediateNodeDB(t *testing.T) {
 	require := require.New(t)
 
-	cacheSize := 10
-	evictionBatchSize := cacheSize
+	cacheSize := 500
+	evictionBatchSize := 450
 	baseDB := memdb.New()
 	db := newIntermediateNodeDB(
 		baseDB,
@@ -38,11 +38,8 @@ func TestIntermediateNodeDB(t *testing.T) {
 
 	// Put a key-node pair
 	key := newPath([]byte{0x01})
-	node1 := &node{
-		dbNode: dbNode{
-			value: maybe.Some([]byte{0x01}),
-		},
-	}
+	node1 := newNode(nil, key)
+	node1.setValue(maybe.Some([]byte{0x01}))
 	require.NoError(db.Put(key, node1))
 
 	// Get the key-node pair from cache
@@ -51,11 +48,8 @@ func TestIntermediateNodeDB(t *testing.T) {
 	require.Equal(node1, node1Read)
 
 	// Overwrite the key-node pair
-	node1Updated := &node{
-		dbNode: dbNode{
-			value: maybe.Some([]byte{0x02}),
-		},
-	}
+	node1Updated := newNode(nil, key)
+	node1Updated.setValue(maybe.Some([]byte{0x02}))
 	require.NoError(db.Put(key, node1Updated))
 
 	// Assert the key-node pair was overwritten
@@ -70,36 +64,35 @@ func TestIntermediateNodeDB(t *testing.T) {
 	// Assert the key-node pair was deleted
 	require.Equal(database.ErrNotFound, err)
 
-	// Put [cacheSize] elements in the cache
-	for i := byte(0); i < byte(cacheSize); i++ {
-		key := newPath([]byte{i})
-		node := &node{
-			dbNode: dbNode{
-				value: maybe.Some([]byte{i}),
-			},
-		}
-		require.NoError(db.Put(key, node))
+	// Put elements in the cache until it will trigger an eviction with the next item
+	nodeCount := byte(0)
+	lastSize := 0
+	for db.nodeCache.currentSize+lastSize < cacheSize {
+		key := newPath([]byte{nodeCount})
+		n := newNode(nil, key)
+		n.setValue(maybe.Some([]byte{nodeCount}))
+		require.NoError(db.Put(key, n))
+		lastSize = len(key) + n.size
+		nodeCount++
 	}
 
-	// Assert cache has expected number of elements
-	require.Equal(cacheSize, db.nodeCache.fifo.Len())
+	// Assert cache has expected size
+	require.Equal(int(nodeCount), db.nodeCache.fifo.Len())
 
 	// Put one more element in the cache, which should trigger an eviction
 	// of all but 1 element
-	key = newPath([]byte{byte(cacheSize)})
-	node := &node{
-		dbNode: dbNode{
-			value: maybe.Some([]byte{byte(cacheSize)}),
-		},
-	}
-	require.NoError(db.Put(key, node))
+	key = newPath([]byte{nodeCount})
+	n := newNode(nil, key)
+	n.setValue(maybe.Some([]byte{nodeCount}))
+	require.NoError(db.Put(key, n))
+	nodeCount++
 
 	// Assert cache has expected number of elements
 	require.Equal(1, db.nodeCache.fifo.Len())
 	gotKey, gotNode, ok := db.nodeCache.fifo.Oldest()
 	require.True(ok)
 	require.Equal(key, gotKey)
-	require.Equal(node, gotNode)
+	require.Equal(n, gotNode)
 
 	// Get a node from the base database (not cache)
 	nodeRead, err := db.Get(newPath([]byte{0x03}))
@@ -112,7 +105,7 @@ func TestIntermediateNodeDB(t *testing.T) {
 	// Assert the cache is empty
 	require.Zero(db.nodeCache.fifo.Len())
 
-	// Assert all [cacheSize]+1 elements evicted were written to disk with prefix.
+	// Assert all elements evicted were written to disk with prefix.
 	it := baseDB.NewIteratorWithPrefix(intermediateNodePrefix)
 	defer it.Release()
 
@@ -121,5 +114,5 @@ func TestIntermediateNodeDB(t *testing.T) {
 		count++
 	}
 	require.NoError(it.Error())
-	require.Equal(cacheSize+1, count)
+	require.Equal(int(nodeCount), count)
 }

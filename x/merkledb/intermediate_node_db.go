@@ -27,9 +27,9 @@ type intermediateNodeDB struct {
 	// from the cache, which will call [OnEviction].
 	// A non-nil error returned from Put is considered fatal.
 	// Keys in [nodeCache] aren't prefixed with [intermediateNodePrefix].
-	nodeCache         onEvictCache[path, *node]
-	evictionBatchSize int
-	metrics           merkleMetrics
+	nodeCache  onEvictCache[path, *node]
+	metrics    merkleMetrics
+	writeBatch database.Batch
 }
 
 func newIntermediateNodeDB(
@@ -40,55 +40,50 @@ func newIntermediateNodeDB(
 	evictionBatchSize int,
 ) *intermediateNodeDB {
 	result := &intermediateNodeDB{
-		metrics:           metrics,
-		baseDB:            db,
-		bufferPool:        bufferPool,
-		evictionBatchSize: evictionBatchSize,
+		metrics:    metrics,
+		baseDB:     db,
+		bufferPool: bufferPool,
+		writeBatch: db.NewBatch(),
 	}
-	result.nodeCache = newOnEvictCache[path](size, result.onEviction)
+	result.nodeCache = newOnEvictCache[path](
+		size,
+		evictionBatchSize,
+		result.onEviction,
+		result.onEvictionBatchFinished,
+		func(p path, n *node) int {
+			if n != nil {
+				return len(p) + n.size
+			}
+			return len(p)
+		})
 	return result
 }
 
 // A non-nil error is considered fatal and closes [db.baseDB].
-func (db *intermediateNodeDB) onEviction(key path, n *node) error {
-	writeBatch := db.baseDB.NewBatch()
-
-	if err := db.addToBatch(writeBatch, key, n); err != nil {
+func (db *intermediateNodeDB) onEvictionBatchFinished() error {
+	if err := db.writeBatch.Write(); err != nil {
 		_ = db.baseDB.Close()
 		return err
 	}
-
-	// Evict the oldest [evictionBatchSize] nodes from the cache
-	// and write them to disk. We write a batch of them, rather than
-	// just [n], so that we don't immediately evict and write another
-	// node, because each time this method is called we do a disk write.
-	// we have already removed the passed n, so the remove count starts at 1
-	for removedCount := 1; removedCount < db.evictionBatchSize; removedCount++ {
-		key, n, exists := db.nodeCache.removeOldest()
-		if !exists {
-			// The cache is empty.
-			break
-		}
-		if err := db.addToBatch(writeBatch, key, n); err != nil {
-			_ = db.baseDB.Close()
-			return err
-		}
-	}
-	if err := writeBatch.Write(); err != nil {
-		_ = db.baseDB.Close()
-		return err
-	}
+	db.writeBatch = db.baseDB.NewBatch()
 	return nil
 }
 
-func (db *intermediateNodeDB) addToBatch(b database.Batch, key path, n *node) error {
+// A non-nil error is considered fatal and closes [db.baseDB].
+func (db *intermediateNodeDB) onEviction(key path, n *node) error {
 	prefixedKey := addPrefixToKey(db.bufferPool, intermediateNodePrefix, key.Bytes())
 	defer db.bufferPool.Put(prefixedKey)
 	db.metrics.DatabaseNodeWrite()
+	var err error
 	if n == nil {
-		return b.Delete(prefixedKey)
+		err = db.writeBatch.Delete(prefixedKey)
+	} else {
+		err = db.writeBatch.Put(prefixedKey, n.marshal())
 	}
-	return b.Put(prefixedKey, n.marshal())
+	if err != nil {
+		_ = db.baseDB.Close()
+	}
+	return err
 }
 
 func (db *intermediateNodeDB) Get(key path) (*node, error) {

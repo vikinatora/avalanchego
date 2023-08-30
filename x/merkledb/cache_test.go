@@ -22,7 +22,13 @@ func TestNewOnEvictCache(t *testing.T) {
 	}
 	maxSize := 10
 
-	cache := newOnEvictCache[int](maxSize, onEviction)
+	cache := newOnEvictCache[int](
+		maxSize,
+		1,
+		onEviction,
+		func() error { return nil },
+		func(int, int) int { return 1 },
+	)
 	require.Equal(maxSize, cache.maxSize)
 	require.NotNil(cache.fifo)
 	require.Zero(cache.fifo.Len())
@@ -47,7 +53,13 @@ func TestOnEvictCacheNoOnEvictionError(t *testing.T) {
 	}
 	maxSize := 3
 
-	cache := newOnEvictCache[int](maxSize, onEviction)
+	cache := newOnEvictCache[int](
+		maxSize,
+		1,
+		onEviction,
+		func() error { return nil },
+		func(int, int) int { return 1 },
+	)
 
 	// Get non-existent key
 	_, ok := cache.Get(0)
@@ -175,7 +187,13 @@ func TestOnEvictCacheOnEvictionError(t *testing.T) {
 		maxSize = 2
 	)
 
-	cache := newOnEvictCache[int](maxSize, onEviction)
+	cache := newOnEvictCache[int](
+		maxSize,
+		1,
+		onEviction,
+		func() error { return nil },
+		func(int, int) int { return 1 },
+	)
 
 	// Fill the cache
 	for i := 0; i < maxSize; i++ {
