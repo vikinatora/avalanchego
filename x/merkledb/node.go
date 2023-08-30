@@ -4,6 +4,7 @@
 package merkledb
 
 import (
+	"github.com/ava-labs/avalanchego/utils"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 
@@ -40,7 +41,7 @@ type node struct {
 	dbNode
 	id          ids.ID
 	key         path
-	nodeBytes   []byte
+	nodeBytes   utils.Atomic[[]byte]
 	valueDigest maybe.Maybe[[]byte]
 	size        uint32
 }
@@ -67,10 +68,10 @@ func parseNode(key path, nodeBytes []byte) (*node, error) {
 		return nil, err
 	}
 	result := &node{
-		dbNode:    n,
-		key:       key,
-		nodeBytes: nodeBytes,
+		dbNode: n,
+		key:    key,
 	}
+	result.nodeBytes.Set(nodeBytes)
 
 	result.size = uint32(len(n.value.Value()) + 1 + len(result.key) + len(result.id) + 4)
 	for _, c := range result.children {
@@ -88,18 +89,18 @@ func (n *node) hasValue() bool {
 
 // Returns the byte representation of this node.
 func (n *node) marshal() []byte {
-	if n.nodeBytes == nil {
-		n.nodeBytes = codec.encodeDBNode(&n.dbNode)
+	if n.nodeBytes.Get() == nil {
+		n.nodeBytes.Set(codec.encodeDBNode(&n.dbNode))
 	}
 
-	return n.nodeBytes
+	return n.nodeBytes.Get()
 }
 
 // clear the cached values that will need to be recalculated whenever the node changes
 // for example, node ID and byte representation
 func (n *node) onNodeChanged() {
 	n.id = ids.Empty
-	n.nodeBytes = nil
+	n.nodeBytes.Set(nil)
 
 }
 
@@ -185,13 +186,10 @@ func (n *node) removeChild(child *node) {
 }
 
 // clone Returns a copy of [n].
-// nodeBytes is intentionally not included because it can cause a race.
-// nodes being evicted by the cache can write nodeBytes,
-// so reading them during the cloning would be a data race.
 // Note: value isn't cloned because it is never edited, only overwritten
 // if this ever changes, value will need to be copied as well
 func (n *node) clone() *node {
-	return &node{
+	clonedNode := &node{
 		id:  n.id,
 		key: n.key,
 		dbNode: dbNode{
@@ -200,7 +198,10 @@ func (n *node) clone() *node {
 		},
 		valueDigest: n.valueDigest,
 		size:        n.size,
+		nodeBytes:   utils.Atomic[[]byte]{},
 	}
+	clonedNode.nodeBytes.Set(n.nodeBytes.Get())
+	return clonedNode
 }
 
 // Returns the ProofNode representation of this node.
