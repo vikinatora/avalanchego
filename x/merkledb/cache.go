@@ -18,6 +18,7 @@ type onEvictCache[K comparable, V any] struct {
 	// Must not call any method that grabs [c.lock]
 	// because this would cause a deadlock.
 	onEviction func(K, V) error
+	sizeFunc   func(K, V) int
 }
 
 func newOnEvictCache[K comparable, V any](maxSize int, onEviction func(K, V) error, sizeFunc func(K, V) int) onEvictCache[K, V] {
