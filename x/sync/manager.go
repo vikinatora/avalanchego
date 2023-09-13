@@ -10,13 +10,11 @@ import (
 	"fmt"
 	"sync"
 
-	"go.uber.org/zap"
-	"golang.org/x/exp/slices"
-
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ava-labs/avalanchego/utils/logging"
 	"github.com/ava-labs/avalanchego/utils/maybe"
 	"github.com/ava-labs/avalanchego/x/merkledb"
+	"go.uber.org/zap"
 
 	pb "github.com/ava-labs/avalanchego/proto/pb/sync"
 )
@@ -396,15 +394,6 @@ func (m *Manager) findNextKey(
 	rangeEnd maybe.Maybe[[]byte],
 	endProof []merkledb.ProofNode,
 ) (maybe.Maybe[[]byte], error) {
-	if len(endProof) == 0 {
-		// We try to find the next key to fetch by looking at the end proof.
-		// If the end proof is empty, we have no information to use.
-		// Start fetching from the next key after [lastReceivedKey].
-		nextKey := lastReceivedKey
-		nextKey = append(nextKey, 0)
-		return maybe.Some(nextKey), nil
-	}
-
 	// We want the first key larger than the [lastReceivedKey].
 	// This is done by taking two proofs for the same key
 	// (one that was just received as part of a proof, and one from the local db)
@@ -512,12 +501,9 @@ func (m *Manager) findNextKey(
 
 	// If the nextKey is before or equal to the [lastReceivedKey]
 	// then we couldn't find a better answer than the [lastReceivedKey].
-	// Set the nextKey to [lastReceivedKey] + 0, which is the first key in
-	// the open range (lastReceivedKey, rangeEnd).
+	// Set the nextKey to [lastReceivedKey]
 	if nextKey.HasValue() && bytes.Compare(nextKey.Value(), lastReceivedKey) <= 0 {
-		nextKeyVal := slices.Clone(lastReceivedKey)
-		nextKeyVal = append(nextKeyVal, 0)
-		nextKey = maybe.Some(nextKeyVal)
+		nextKey = maybe.Some(lastReceivedKey)
 	}
 
 	// If the [nextKey] is larger than the end of the range, return Nothing to signal that there is no next key in range
