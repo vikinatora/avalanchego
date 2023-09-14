@@ -388,13 +388,14 @@ func (m *Manager) getAndApplyRangeProof(ctx context.Context, work *workItem) {
 	}
 
 	largestHandledKey := work.end
-	if len(proof.KeyValues) > 0 {
-		// Add all the key-value pairs we got to the database.
-		if err := m.config.DB.CommitRangeProof(ctx, work.start, proof); err != nil {
-			m.setError(err)
-			return
-		}
 
+	// Add all the key-value pairs we got to the database.
+	if err := m.config.DB.CommitRangeProof(ctx, work.start, proof); err != nil {
+		m.setError(err)
+		return
+	}
+
+	if len(proof.KeyValues) > 0 {
 		largestHandledKey = maybe.Some(proof.KeyValues[len(proof.KeyValues)-1].Key)
 	}
 
@@ -528,7 +529,7 @@ func (m *Manager) findNextKey(
 	// then we couldn't find a better answer than the [lastReceivedKey].
 	// Set the nextKey to [lastReceivedKey]
 	if nextKey.HasValue() && bytes.Compare(nextKey.Value(), lastReceivedKey) <= 0 {
-		nextKey = maybe.Some(lastReceivedKey)
+		nextKey = maybe.Some(append(lastReceivedKey, 0))
 	}
 
 	// If the [nextKey] is larger than the end of the range, return Nothing to signal that there is no next key in range
