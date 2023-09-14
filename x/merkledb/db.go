@@ -333,20 +333,22 @@ func (db *merkleDB) CommitRangeProof(ctx context.Context, start maybe.Maybe[[]by
 		}
 	}
 
-	var largestKey []byte
-	if len(proof.KeyValues) > 0 {
-		largestKey = proof.KeyValues[len(proof.KeyValues)-1].Key
-	}
-	keysToDelete, err := db.getKeysNotInSet(start.Value(), largestKey, keys)
-	if err != nil {
-		return err
-	}
-	for _, keyToDelete := range keysToDelete {
-		ops = append(ops, database.BatchOp{
-			Key:    keyToDelete,
-			Delete: true,
-		})
-	}
+	/*
+		var largestKey []byte
+		if len(proof.KeyValues) > 0 {
+			largestKey = proof.KeyValues[len(proof.KeyValues)-1].Key
+		}
+		keysToDelete, err := db.getKeysNotInSet(start.Value(), largestKey, keys)
+		if err != nil {
+			return err
+		}
+		for _, keyToDelete := range keysToDelete {
+			ops = append(ops, database.BatchOp{
+				Key:    keyToDelete,
+				Delete: true,
+			})
+		}
+	*/
 
 	// Don't need to lock [view] because nobody else has a reference to it.
 	view, err := db.newUntrackedView(ops)
