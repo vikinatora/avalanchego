@@ -226,6 +226,31 @@ func (m *Manager) close() {
 			m.cancelCtx()
 		}
 
+		if m.unprocessedWork.Len() > 0 {
+			m.config.Log.Info(fmt.Sprintf("unprocessedWork:%d", m.unprocessedWork.Len()))
+			for m.unprocessedWork.Len() > 0 {
+				item := m.unprocessedWork.GetWork()
+				if item != nil {
+					m.config.Log.Info(fmt.Sprintf("unprocessedWorkItem:%s, %s", item.start.Value(), item.end.Value()))
+				} else {
+					m.config.Log.Info("unprocessedWorkItem:nil")
+				}
+			}
+			panic("extra unprocessed items")
+		}
+
+		if m.processedWork.Len() > 1 {
+			m.config.Log.Info(fmt.Sprintf("processedWork:%d", m.unprocessedWork.Len()))
+			for m.unprocessedWork.Len() > 0 {
+				item := m.unprocessedWork.GetWork()
+				if item != nil {
+					m.config.Log.Info(fmt.Sprintf("processedWork:%s, %s", item.start.Value(), item.end.Value()))
+				} else {
+					m.config.Log.Info("processedWork:nil")
+				}
+			}
+			panic("extra processedWork items")
+		}
 		// ensure any goroutines waiting for work from the heaps gets released
 		m.unprocessedWork.Close()
 		m.unprocessedWorkCond.Signal()
