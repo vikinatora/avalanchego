@@ -153,9 +153,11 @@ HOME
             ├── defaults.json                            // Default flags and configuration for network
             ├── genesis.json                             // Genesis for all nodes
             ├── network.env                              // Sets network dir env to simplify use of network
-            └── ephemeral                                // Parent directory for ephemeral nodes (e.g. created by tests)
-                └─ NodeID-FdxnAvr4jK9XXAwsYZPgWAHW2QnwSZ // Data dir for an ephemeral node
-                   └── ...
+            ├── ephemeral                                // Parent directory for ephemeral nodes (e.g. created by tests)
+            │   └─ NodeID-FdxnAvr4jK9XXAwsYZPgWAHW2QnwSZ // Data dir for an ephemeral node
+            │      └── ...
+            └── subnets                                  // Parent directory for subnet definitions
+                └─ [subnet name].json                    // Subnet definition
 
 ```
 

@@ -8,6 +8,9 @@ AVALANCHE_PATH=$( cd "$( dirname "${BASH_SOURCE[0]}" )"; cd .. && pwd ) # Direct
 # Where AvalancheGo binary goes
 avalanchego_path="$AVALANCHE_PATH/build/avalanchego"
 
+# Required to resolve the default avalanchego plugin path
+export GOPATH="$(go env GOPATH)"
+
 # Avalabs docker hub
 # avaplatform/avalanchego - defaults to local as to avoid unintentional pushes
 # You should probably set it - export DOCKER_REPO='avaplatform/avalanchego'

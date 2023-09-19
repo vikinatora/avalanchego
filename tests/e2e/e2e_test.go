@@ -40,6 +40,8 @@ var (
 	avalancheGoExecPath  string
 	persistentNetworkDir string
 	usePersistentNetwork bool
+	retainSubnets        bool
+	pluginDir            string
 )
 
 func init() {
@@ -61,6 +63,18 @@ func init() {
 		false,
 		"[optional] whether to target the persistent network identified by --network-dir.",
 	)
+	flag.BoolVar(
+		&retainSubnets,
+		"retain-subnets",
+		false,
+		"[optional] whether to retain subnets created by a test.",
+	)
+	flag.StringVar(
+		&pluginDir,
+		"plugin-dir",
+		os.ExpandEnv("$HOME/.avalanchego/plugins"),
+		"[optional] the dir containing VM plugins.",
+	)
 }
 
 var _ = ginkgo.SynchronizedBeforeSuite(func() []byte {
@@ -75,11 +89,10 @@ var _ = ginkgo.SynchronizedBeforeSuite(func() []byte {
 	// Load or create a test network
 	var network *local.LocalNetwork
 	if len(persistentNetworkDir) > 0 {
-		tests.Outf("{{yellow}}Using a persistent network configured at %s{{/}}\n", persistentNetworkDir)
-
 		var err error
 		network, err = local.ReadNetwork(persistentNetworkDir)
 		require.NoError(err)
+		tests.Outf("{{yellow}}Using a persistent network configured at %s{{/}}\n", network.Dir)
 	} else {
 		network = e2e.StartLocalNetwork(avalancheGoExecPath, e2e.DefaultNetworkDir)
 	}
@@ -89,6 +102,7 @@ var _ = ginkgo.SynchronizedBeforeSuite(func() []byte {
 	tests.Outf("{{green}}network URIs: {{/}} %+v\n", uris)
 
 	testDataServerURI, err := fixture.ServeTestData(fixture.TestData{
+		// TODO(marun) Avoid allocating keys that were used to deploy subnets
 		FundedKeys: network.FundedKeys,
 	})
 	tests.Outf("{{green}}test data server URI: {{/}} %+v\n", testDataServerURI)
@@ -98,6 +112,8 @@ var _ = ginkgo.SynchronizedBeforeSuite(func() []byte {
 		NetworkDir:        network.Dir,
 		URIs:              uris,
 		TestDataServerURI: testDataServerURI,
+		PluginDir:         pluginDir,
+		RetainSubnets:     retainSubnets,
 	}
 	bytes, err := json.Marshal(env)
 	require.NoError(err)
