@@ -5,6 +5,7 @@ package peer
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -44,6 +45,8 @@ func writeMsgLen(msgLen uint32, maxMsgLen uint32) ([wrappers.IntLen]byte, error)
 
 // Assumes the read [msgLen] will never >= 1<<31.
 func readMsgLen(b []byte, maxMsgLen uint32) (uint32, error) {
+	println("Message length: ", len(b))
+	println("Message: ", hex.EncodeToString(b))
 	if maxMsgLen >= bitmaskCodec {
 		return 0, fmt.Errorf(
 			"%w; maximum message length must be <%d to be able to embed codec information at most significant bit",

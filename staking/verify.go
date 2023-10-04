@@ -9,6 +9,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -42,8 +43,10 @@ var (
 // Ref: https://github.com/golang/go/blob/go1.19.12/src/crypto/x509/x509.go#L816-L879
 func CheckSignature(cert *Certificate, msg []byte, signature []byte) error {
 	if err := ValidateCertificate(cert); err != nil {
+		println("Error validating certificate: ", err.Error())
 		return err
 	}
+	println("Validated certificate!")
 
 	hasher := crypto.SHA256.New()
 	_, err := hasher.Write(msg)
@@ -52,10 +55,15 @@ func CheckSignature(cert *Certificate, msg []byte, signature []byte) error {
 	}
 	hashed := hasher.Sum(nil)
 
+	println("msg is " + hex.EncodeToString(msg))
+	println("hash is " + hex.EncodeToString(hashed))
+	println("Veryifying signature...")
 	switch pub := cert.PublicKey.(type) {
 	case *rsa.PublicKey:
+		println("Public key is RSA")
 		return rsa.VerifyPKCS1v15(pub, crypto.SHA256, hashed, signature)
 	case *ecdsa.PublicKey:
+		println("Public key is ECDSA")
 		if !ecdsa.VerifyASN1(pub, hashed, signature) {
 			return ErrECDSAVerificationFailure
 		}

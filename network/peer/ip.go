@@ -6,6 +6,7 @@ package peer
 import (
 	"crypto"
 	"crypto/rand"
+	"fmt"
 
 	"github.com/ava-labs/avalanchego/staking"
 	"github.com/ava-labs/avalanchego/utils/hashing"
@@ -50,6 +51,9 @@ type SignedIP struct {
 }
 
 func (ip *SignedIP) Verify(cert *staking.Certificate) error {
+	fmt.Printf("unsigned ip: %v \n", ip.UnsignedIP.IP.String())
+	fmt.Printf("unsigned port: %v \n", ip.UnsignedIP.Port)
+
 	return staking.CheckSignature(
 		cert,
 		ip.UnsignedIP.bytes(),

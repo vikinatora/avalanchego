@@ -6,7 +6,9 @@ package peer
 import (
 	"bufio"
 	"context"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -308,6 +310,7 @@ func (p *peer) StartSendPeerList() {
 
 func (p *peer) StartClose() {
 	p.startClosingOnce.Do(func() {
+		println("Closing peer: ", p.id.String())
 		if err := p.conn.Close(); err != nil {
 			p.Log.Debug("failed to close connection",
 				zap.Stringer("nodeID", p.id),
@@ -352,6 +355,7 @@ func (p *peer) close() {
 // Read and handle messages from this peer.
 // When this method returns, the connection is closed.
 func (p *peer) readMessages() {
+	println("Reading messages from peer: ", p.id.String())
 	// Track this node with the inbound message throttler.
 	p.InboundMsgThrottler.AddNode(p.id)
 	defer func() {
@@ -366,6 +370,7 @@ func (p *peer) readMessages() {
 	for {
 		// Time out and close connection if we can't read the message length
 		if err := p.conn.SetReadDeadline(p.nextTimeout()); err != nil {
+			println("Error setting read deadline: ", err.Error())
 			p.Log.Verbo("error setting the connection read timeout",
 				zap.Stringer("nodeID", p.id),
 				zap.Error(err),
@@ -374,7 +379,9 @@ func (p *peer) readMessages() {
 		}
 
 		// Read the message length
-		if _, err := io.ReadFull(reader, msgLenBytes); err != nil {
+		if msg, err := io.ReadFull(reader, msgLenBytes); err != nil {
+			println("Read invalid message length: ", msg)
+			println("Error reading message length: ", err.Error())
 			p.Log.Verbo("error reading message",
 				zap.Stringer("nodeID", p.id),
 				zap.Error(err),
@@ -385,6 +392,7 @@ func (p *peer) readMessages() {
 		// Parse the message length
 		msgLen, err := readMsgLen(msgLenBytes, constants.DefaultMaxMessageSize)
 		if err != nil {
+			println("Error parsing message length: ", err.Error())
 			p.Log.Verbo("error reading message length",
 				zap.Stringer("nodeID", p.id),
 				zap.Error(err),
@@ -413,12 +421,14 @@ func (p *peer) readMessages() {
 
 		// If the peer is shutting down, there's no need to read the message.
 		if err := p.onClosingCtx.Err(); err != nil {
+			println("Peer is shutting down: ", err.Error())
 			onFinishedHandling()
 			return
 		}
 
 		// Time out and close connection if we can't read message
 		if err := p.conn.SetReadDeadline(p.nextTimeout()); err != nil {
+			println("Error setting read deadline: ", err.Error())
 			p.Log.Verbo("error setting the connection read timeout",
 				zap.Stringer("nodeID", p.id),
 				zap.Error(err),
@@ -430,6 +440,7 @@ func (p *peer) readMessages() {
 		// Read the message
 		msgBytes := make([]byte, msgLen)
 		if _, err := io.ReadFull(reader, msgBytes); err != nil {
+			println("Error reading message: ", err.Error())
 			p.Log.Verbo("error reading message",
 				zap.Stringer("nodeID", p.id),
 				zap.Error(err),
@@ -452,6 +463,7 @@ func (p *peer) readMessages() {
 		)
 
 		// Parse the message
+		println("Parsing message from node: ", p.id.String(), " payload: ", msgBytes)
 		msg, err := p.MessageCreator.Parse(msgBytes, p.id, onFinishedHandling)
 		if err != nil {
 			p.Log.Verbo("failed to parse message",
@@ -506,6 +518,18 @@ func (p *peer) writeMessages() {
 		mySignedIP.Signature,
 		p.MySubnets.List(),
 	)
+	println("NetworkID: ", p.NetworkID)
+	println("Clock: ", p.Clock.Unix())
+	println("IP: ", mySignedIP.IPPort.IP.To4().String())
+	println("Version: ", p.VersionCompatibility.Version().String())
+	println("Timestamp: ", mySignedIP.Timestamp)
+	println("Signature: ", hex.EncodeToString(mySignedIP.Signature))
+	for subnet := range p.MySubnets.List() {
+		println("Subnets: ", subnet)
+	}
+	println("Version message: ")
+	println(hex.EncodeToString(msg.Bytes()))
+
 	if err != nil {
 		p.Log.Error("failed to create message",
 			zap.Stringer("messageOp", message.VersionOp),
@@ -515,18 +539,22 @@ func (p *peer) writeMessages() {
 		return
 	}
 
+	println("Sending version message to node: ", p.id.String(), " payload: ", msg.Bytes())
 	p.writeMessage(writer, msg)
 
 	for {
 		msg, ok := p.messageQueue.PopNow()
 		if ok {
 			p.writeMessage(writer, msg)
+			println("Sent message to node: ", p.id.String(), " payload: ", msg.Bytes())
 			continue
 		}
 
 		// Make sure the peer was fully sent all prior messages before
 		// blocking.
+		println("Flushing writer to node: ", p.id.String())
 		if err := writer.Flush(); err != nil {
+			println("Error flushing writer: ", err.Error())
 			p.Log.Verbo("failed to flush writer",
 				zap.Stringer("nodeID", p.id),
 				zap.Error(err),
@@ -669,6 +697,7 @@ func (p *peer) sendNetworkMessages() {
 }
 
 func (p *peer) handle(msg message.InboundMessage) {
+	println("Handling inbound message! Type: ", msg.Op())
 	switch m := msg.Message().(type) { // Network-related message types
 	case *p2p.Ping:
 		p.handlePing(m)
@@ -679,6 +708,7 @@ func (p *peer) handle(msg message.InboundMessage) {
 		msg.OnFinishedHandling()
 		return
 	case *p2p.Version:
+		println("Handling inbound version message!")
 		p.handleVersion(m)
 		msg.OnFinishedHandling()
 		return
@@ -956,6 +986,10 @@ func (p *peer) handleVersion(msg *p2p.Version) {
 		},
 		Signature: msg.Sig,
 	}
+	fmt.Printf("Cert alg is: %v \n", p.Cert().SignatureAlgorithm.String())
+	fmt.Printf("Ip is: %v \n", p.IP())
+	fmt.Printf("Port is: %v \n", p.ip.Port)
+
 	if err := p.ip.Verify(p.cert); err != nil {
 		p.Log.Debug("signature verification failed",
 			zap.Stringer("nodeID", p.id),
@@ -993,6 +1027,7 @@ func (p *peer) handleVersion(msg *p2p.Version) {
 			zap.Stringer("nodeID", p.id),
 		)
 	}
+	println("All good?")
 }
 
 func (p *peer) handlePeerList(msg *p2p.PeerList) {

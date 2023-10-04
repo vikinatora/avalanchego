@@ -172,6 +172,7 @@ func newTestNetwork(t *testing.T, count int) (*testDialer, []*testListener, []id
 		config.TLSConfig = tlsConfig
 		config.MyNodeID = nodeID
 		config.MyIPPort = ip
+		// Bookmark
 		config.TLSKey = tlsCert.PrivateKey.(crypto.Signer)
 
 		listeners[i] = listener
